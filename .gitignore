@@ -9,6 +9,6 @@ __pycache__/
 *.pyc
 
 # Development checkpoints/backups
-test_nodes.py.bak
-test_nodes.py.before-*
-test_nodes.py.*-working
+iox_logger.py.bak
+iox_logger.py.before-*
+iox_logger.py.*-working
