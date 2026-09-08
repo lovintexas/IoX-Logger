@@ -1,2 +1,2 @@
-ND-ioxloggertest-NAME = IoX Logger Test
+ND-ioxloggertest-NAME = IoX Logger
 ST = Status

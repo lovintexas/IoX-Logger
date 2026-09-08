@@ -17,7 +17,7 @@ LOGGER = udi_interface.LOGGER
 polyglot = udi_interface.Interface([])
 
 
-DATA_DIR = Path("/home/admin/iox-logger-test/data")
+DATA_DIR = Path(__file__).resolve().parent / "data"
 CONFIG_FILE = DATA_DIR / "loggers.json"
 
 # CSV storage limits
@@ -1459,7 +1459,7 @@ class Controller(udi_interface.Node):
     ]
 
     def __init__(self, polyglot):
-        super().__init__(polyglot, "controller", "controller", "IoX Logger Test")
+        super().__init__(polyglot, "controller", "controller", "IoX Logger")
         self.isy_helper = udi_interface.ISY(polyglot)
         self.logger_lock = threading.RLock()
         self.native_driver_labels = {}
