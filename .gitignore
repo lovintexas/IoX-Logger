@@ -1,0 +1,14 @@
+# PG3x runtime
+NSplugin_*.lock
+svc.pid
+plugin_*.key
+plugin_*.cert
+logs/
+data/
+__pycache__/
+*.pyc
+
+# Development checkpoints/backups
+test_nodes.py.bak
+test_nodes.py.before-*
+test_nodes.py.*-working
