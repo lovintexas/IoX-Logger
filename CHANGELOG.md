@@ -2,6 +2,12 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.0.2
+
+- Added Configuration page help.
+- Added instructions for enabling the required "Allow Unrestricted ISY Access by Node Server" permission.
+- Configuration help is now displayed directly within the PG3x plugin Configuration page.
+
 ## 1.0.1
 
 - Added installation and first-use documentation.
