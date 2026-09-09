@@ -17,8 +17,3 @@ iox_logger.py.*-working
 test_nodes.py.bak
 test_nodes.py.before-*
 test_nodes.py.*-working
-
-# Legacy development checkpoints/backups
-test_nodes.py.bak
-test_nodes.py.before-*
-test_nodes.py.*-working
