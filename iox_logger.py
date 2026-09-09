@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import udi_interface
+import markdown2
 
 LOGGER = udi_interface.LOGGER
 polyglot = udi_interface.Interface([])
@@ -2319,6 +2320,12 @@ if __name__ == "__main__":
 
     controller = Controller(polyglot)
     polyglot.addNode(controller)
+
+    configuration_help = "./configdoc.md"
+
+    if Path(configuration_help).is_file():
+        cfgdoc = markdown2.markdown_path(configuration_help)
+        polyglot.setCustomParamsDoc(cfgdoc)
 
     polyglot.ready()
     polyglot.updateProfile()
