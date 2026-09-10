@@ -758,7 +758,8 @@ async function deleteLogger(index) {{
         "Delete logger " +
         logger.node_name + " - " +
         logger.value_name + "?\\n\\n" +
-        "The CSV data will be kept."
+        "All historical CSV data for this logger will also be deleted. " +
+        "This cannot be undone."
     )) {{
         return;
     }}
@@ -1988,6 +1989,29 @@ class Controller(udi_interface.Node):
             if entry is None:
                 raise ValueError("Logger not found")
 
+            # Delete the active CSV and all rotated archives belonging
+            # to this logger before removing its configuration.
+            csv_file = self.csv_path_for_logger(entry)
+
+            files = list(
+                DATA_DIR.glob(f"{csv_file.stem}__*.csv")
+            )
+
+            if csv_file.exists():
+                files.append(csv_file)
+
+            deleted_files = 0
+            deleted_bytes = 0
+
+            for file in files:
+                try:
+                    size = file.stat().st_size
+                    file.unlink()
+                    deleted_files += 1
+                    deleted_bytes += size
+                except FileNotFoundError:
+                    pass
+
             self.configured_loggers.remove(entry)
             self.save_logger_config()
 
@@ -1998,9 +2022,12 @@ class Controller(udi_interface.Node):
                 )
 
             LOGGER.info(
-                "Deleted logger configuration: %s - %s",
+                "Deleted logger and historical data: %s - %s "
+                "(%d files, %d bytes)",
                 entry["node_name"],
                 entry["value_name"],
+                deleted_files,
+                deleted_bytes,
             )
 
     def set_logger_interval(self, data):
