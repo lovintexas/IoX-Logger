@@ -2,6 +2,12 @@
 
 IoX Logger is a PG3x plugin for Universal Devices IoX that records node and driver values for historical analysis.
 
+## Documentation
+
+Full documentation and setup guide:
+
+https://lovintexas.github.io/IoX-Logger/
+
 ## Features
 
 - Discovers native IoX nodes and installed plugin nodes
