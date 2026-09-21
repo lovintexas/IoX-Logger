@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>IoX Logger</title>
+<style>
+:root{--bg:#f5f7fa;--card:#fff;--ink:#172033;--muted:#5e6b7a;--line:#dfe5ec;--hero:#10243d;--accent:#2f6f9f}
+*{box-sizing:border-box} body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--ink);line-height:1.55}
+.hero{background:var(--hero);color:white;padding:52px 22px 46px}.wrap{max-width:1040px;margin:auto}
+h1{margin:0 0 10px;font-size:clamp(2rem,5vw,3.3rem)}.subtitle{max-width:780px;color:#dbe7f3;font-size:1.08rem}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}.badge{border:1px solid #66819e;border-radius:999px;padding:5px 10px;font-size:.86rem}
+main{padding:28px 18px 48px}.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin-bottom:18px;box-shadow:0 1px 3px #0001}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-bottom:18px}.grid .card{margin:0}
+h2{margin:0 0 12px;font-size:1.35rem} h3{margin:18px 0 8px} p{margin:8px 0 12px}
+ul,ol{margin:8px 0 8px 22px;padding:0}li{margin:5px 0}
+code{background:#eef2f6;border-radius:4px;padding:2px 5px}.address{display:block;background:#172033;color:#eef6ff;border-radius:7px;padding:11px 13px;margin:10px 0;overflow:auto}
+.note{background:#f0f6fa;border-left:4px solid var(--accent);padding:12px 14px;border-radius:4px}
+.warning{background:#fff6e8;border-left:4px solid #b47718;padding:12px 14px;border-radius:4px}
+table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;vertical-align:top;border-bottom:1px solid var(--line);padding:10px 8px}th{background:#f7f9fb}
+footer{color:var(--muted);text-align:center;padding:0 18px 35px;font-size:.9rem}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="hero"><div class="wrap">
+<h1>IoX Logger</h1>
+<p class="subtitle">A PG3x plugin for Universal Devices IoX that records node and driver values for historical analysis.</p>
+<div class="badges"><span class="badge">PG3x</span><span class="badge">IoX</span><span class="badge">Historical Logging</span><span class="badge">CSV Export</span></div>
+</div></header>
+
+<main class="wrap">
+<section class="card">
+<h2>Overview</h2>
+<p>IoX Logger discovers native IoX nodes and installed plugin nodes, records selected driver values, and provides a local web interface for managing loggers and reviewing historical data.</p>
+</section>
+
+<div class="grid">
+<section class="card">
+<h2>Features</h2>
+<ul>
+<li>Discover native IoX nodes and installed plugin nodes</li>
+<li>Log selected node and driver values</li>
+<li>On-change or fixed-interval logging</li>
+<li>Enable, disable, edit, and delete individual loggers</li>
+<li>Graph historical data</li>
+<li>Download data as CSV</li>
+<li>Automatic CSV rotation and storage management</li>
+</ul>
+</section>
+
+<section class="card">
+<h2>Requirements</h2>
+<ul>
+<li>Universal Devices eisy running PG3x</li>
+<li>IoX</li>
+<li>Unrestricted IoX access permission enabled for the plugin</li>
+<li>TCP port <strong>8765</strong> available on the eisy</li>
+</ul>
+</section>
+</div>
+
+<section class="card">
+<h2>Installation & Required Permission</h2>
+<p>Install <strong>IoX Logger</strong> from the PG3x Plugin Store.</p>
+<p>IoX Logger requires direct access to IoX so it can discover nodes and read their values. After installation:</p>
+<ol>
+<li>Open <strong>IoX Logger</strong> in PG3x.</li>
+<li>Go to the <strong>Configuration</strong> page.</li>
+<li>Enable <strong>Allow Unrestricted ISY Access by Node Server</strong>.</li>
+<li>Restart IoX Logger if prompted or if the plugin was already running.</li>
+</ol>
+<p class="note"><strong>Required:</strong> Without unrestricted IoX access, IoX Logger cannot retrieve the IoX node catalog or log node values.</p>
+</section>
+
+<section class="card">
+<h2>Web Interface</h2>
+<p>After IoX Logger is running, open the following address in a web browser:</p>
+<code class="address">http://&lt;eisy-ip-address&gt;:8765</code>
+<p>Replace <code>&lt;eisy-ip-address&gt;</code> with the IP address of your eisy. For example:</p>
+<code class="address">http://192.168.1.100:8765</code>
+<p class="warning"><strong>Local network only:</strong> The web interface currently does not provide user authentication and should not be exposed directly to the Internet.</p>
+</section>
+
+<section class="card">
+<h2>Creating a Logger</h2>
+<ol>
+<li>Select an IoX source.</li>
+<li>Select a node.</li>
+<li>Select the value/driver to log.</li>
+<li>Choose the logging mode:
+<ul><li><strong>On Change</strong> — records a new value when it changes.</li>
+<li><strong>Fixed Interval</strong> — records the value at the selected interval.</li></ul>
+</li>
+<li>Create the logger.</li>
+</ol>
+<p>Once data has been collected, it can be viewed as a graph or downloaded as a CSV file.</p>
+</section>
+
+<section class="card">
+<h2>Managing Loggers</h2>
+<p>Individual loggers can be enabled or disabled, edited, or deleted from the local web interface. Fixed-interval loggers can have their logging interval adjusted as needed.</p>
+</section>
+
+<section class="card">
+<h2>Data Storage</h2>
+<p>Logger configuration and historical data are stored locally on the eisy. Logger data is kept in the plugin's local <code>data</code> directory.</p>
+<p>CSV files are automatically rotated, and older files are removed as configured storage limits are reached.</p>
+</section>
+
+<section class="card">
+<h2>License</h2>
+<p>IoX Logger is released under the MIT License.</p>
+</section>
+</main>
+
+<footer>IoX Logger — PG3x / Universal Devices IoX</footer>
+</body>
+</html>
