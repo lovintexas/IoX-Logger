@@ -1402,7 +1402,7 @@ if (!points.length) {{
 
             if family is not None and family.get("instance"):
                 slot = family.get("instance")
-                labels = controller.get_driver_labels(slot)
+                labels = controller.get_driver_labels(slot, node.get('nodeDefId'))
             else:
                 # Native IoX node: use its native node definition
                 # to obtain friendly property names.
@@ -1415,10 +1415,30 @@ if (!points.length) {{
             seen_drivers = set()
             native_node = family is None
 
+            if family is not None and node.get("nodeDefId"):
+                for driver in controller.get_pg3_driver_ids(
+                    slot, node.get("nodeDefId")
+                ):
+                    values.append({
+                        "driver": driver,
+                        "label": labels.get(driver, driver),
+                        "formatted": None,
+                        "value": None,
+                    })
+                    seen_drivers.add(driver)
+
             for prop in root.findall(".//property"):
                 driver = prop.get("id")
 
-                if not driver or driver in seen_drivers:
+                if not driver:
+                    continue
+
+                if driver in seen_drivers:
+                    for entry in values:
+                        if entry["driver"] == driver:
+                            entry["formatted"] = prop.get("formatted")
+                            entry["value"] = prop.get("value")
+                            break
                     continue
 
                 # For native nodes, expose only visible properties
@@ -1601,21 +1621,44 @@ class Controller(udi_interface.Node):
             daemon=True,
         ).start()
 
-    def get_driver_labels(self, slot):
-        """Return IoX driver -> friendly label mapping for a plugin slot."""
+    def get_driver_labels(self, slot, nodedef_id=None):
+        """Return driver labels for a PG3x node type."""
         nls = self.isy_helper.cmd(
             f"/rest/profiles/family/10/profile/{slot}/download/nls/en_us.txt"
         )
-
         labels = {}
-
         for line in nls.splitlines():
-            if line.startswith("ST-") and "-NAME=" in line:
-                key, label = line.split("=", 1)
-                driver = key[3:-5]
-                labels[driver] = label.strip()
-
+            if "=" not in line:
+                continue
+            key, label = (part.strip() for part in line.split("=", 1))
+            if not key.startswith("ST-") or not key.endswith("-NAME"):
+                continue
+            driver_key = key[3:-5]
+            if nodedef_id and driver_key.startswith(nodedef_id + "-"):
+                driver = driver_key[len(nodedef_id) + 1:]
+            elif "-" not in driver_key:
+                driver = driver_key
+            else:
+                continue
+            labels[driver] = label
         return labels
+
+    def get_pg3_driver_ids(self, slot, nodedef_id):
+        """Return status drivers defined for a PG3x node type."""
+        xml = self.isy_helper.cmd(
+            f"/rest/profiles/family/10/profile/{slot}/download/nodedef/nodedefs.xml"
+        )
+        root = ET.fromstring(xml)
+
+        for nodedef in root.iter("nodeDef"):
+            if nodedef.get("id") == nodedef_id:
+                return [
+                    prop.get("id")
+                    for prop in nodedef.findall("./sts/st")
+                    if prop.get("id")
+                ]
+
+        return []
 
     def load_native_driver_labels(self):
         """Load native IoX node-definition property labels once."""
@@ -1779,17 +1822,22 @@ class Controller(udi_interface.Node):
                 labels = label_cache[cache_key]
 
             else:
-                if slot not in label_cache:
+                nodedef_id = info.get("nodedef")
+                cache_key = (slot, nodedef_id)
+
+                if cache_key not in label_cache:
                     try:
-                        label_cache[slot] = self.get_driver_labels(slot)
+                        label_cache[cache_key] = self.get_driver_labels(
+                            slot, nodedef_id
+                        )
                     except Exception:
                         LOGGER.exception(
-                            "Unable to load driver labels for slot %s",
-                            slot,
+                            "Unable to load driver labels for %s",
+                            cache_key,
                         )
-                        label_cache[slot] = {}
+                        label_cache[cache_key] = {}
 
-                labels = label_cache[slot]
+                labels = label_cache[cache_key]
 
             driver = entry["driver"]
 
