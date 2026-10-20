@@ -90,7 +90,7 @@ class LoggerWebHandler(BaseHTTPRequestHandler):
         html = f"""<!doctype html>
 <html>
 <head>
-  <title>IoX Data Logger</title>
+  <title>IoX Logger</title>
   <style>
     * {{
       box-sizing: border-box;
@@ -464,7 +464,7 @@ class LoggerWebHandler(BaseHTTPRequestHandler):
   </style>
 </head>
 <body>
-  <h1>IoX Data Logger</h1>
+  <h1>IoX Logger</h1>
 
   <p>
     <label>Source:</label>
@@ -783,7 +783,7 @@ async function deleteLogger(index) {{
     activeLoggers.splice(index, 1);
     renderLoggers();
     message.textContent =
-        "Logger deleted. CSV data was kept.";
+        "Logger and associated CSV data deleted.";
 }}
 
 async function addLogger() {{
