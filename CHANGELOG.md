@@ -2,6 +2,16 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.0.4
+
+- Fixed Value dropdowns for offline PG3x devices.
+- Improved friendly property names for PG3x devices, including Smart Life / Tuya.
+- Corrected property label handling for multiple device types within the same plugin.
+
+## 1.0.3
+
+- Modified logger deletion to also delete historical data.
+
 ## 1.0.2
 
 - Added Configuration page help.
