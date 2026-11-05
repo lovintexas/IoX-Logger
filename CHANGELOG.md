@@ -2,6 +2,14 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.0.5
+
+- Fixed an uninitialized variable error when retrieving node values.
+- Fixed missing friendly driver names in PG3x plugins, including TimeData and OpenWeatherMap.
+- Switched to cached IoX JSON profile definitions for driver labels and IDs.
+- Improved driver discovery for offline PG3x devices.
+- Removed duplicate profile-loading code and redundant REST requests.
+
 ## 1.0.4
 
 - Fixed Value dropdowns for offline PG3x devices.
