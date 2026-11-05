@@ -1485,6 +1485,7 @@ class Controller(udi_interface.Node):
         self.isy_helper = udi_interface.ISY(polyglot)
         self.logger_lock = threading.RLock()
         self.native_driver_labels = {}
+        self.profile_definitions = {}
 
     def start(self):
         LOGGER.info("IoX Logger starting")
@@ -1622,65 +1623,31 @@ class Controller(udi_interface.Node):
         ).start()
 
     def get_driver_labels(self, slot, nodedef_id=None):
-        """Return driver labels for a PG3x node type."""
-        nls_prefix = nodedef_id
-
-        if nodedef_id:
-            xml = self.isy_helper.cmd(
-                f"/rest/profiles/family/10/profile/{slot}/download/nodedef/nodedefs.xml"
-            )
-            root = ET.fromstring(xml)
-
-            for nodedef in root.iter("nodeDef"):
-                if nodedef.get("id") == nodedef_id:
-                    nls_prefix = nodedef.get("nls") or nodedef_id
-                    break
-
-        nls = self.isy_helper.cmd(
-            f"/rest/profiles/family/10/profile/{slot}/download/nls/en_us.txt"
+        """Return cached friendly driver labels for a PG3x node."""
+        nodedef = self.profile_definitions.get(
+            ("10", str(slot), nodedef_id), {}
         )
 
-        labels = {}
-        for line in nls.splitlines():
-            if "=" not in line:
-                continue
-
-            key, label = (part.strip() for part in line.split("=", 1))
-            if not key.startswith("ST-") or not key.endswith("-NAME"):
-                continue
-
-            driver_key = key[3:-5]
-
-            if nls_prefix and driver_key.startswith(nls_prefix + "-"):
-                driver = driver_key[len(nls_prefix) + 1:]
-            elif "-" not in driver_key:
-                driver = driver_key
-            else:
-                continue
-
-            labels[driver] = label
-
-        return labels
+        return {
+            prop["id"]: prop.get("name") or prop["id"]
+            for prop in nodedef.get("properties", [])
+            if prop.get("id") and not prop.get("hide", False)
+        }
 
     def get_pg3_driver_ids(self, slot, nodedef_id):
-        """Return status drivers defined for a PG3x node type."""
-        xml = self.isy_helper.cmd(
-            f"/rest/profiles/family/10/profile/{slot}/download/nodedef/nodedefs.xml"
+        """Return cached status driver IDs for a PG3x node."""
+        nodedef = self.profile_definitions.get(
+            ("10", str(slot), nodedef_id), {}
         )
-        root = ET.fromstring(xml)
 
-        for nodedef in root.iter("nodeDef"):
-            if nodedef.get("id") == nodedef_id:
-                return [
-                    prop.get("id")
-                    for prop in nodedef.findall("./sts/st")
-                    if prop.get("id")
-                ]
-
-        return []
+        return [
+            prop["id"]
+            for prop in nodedef.get("properties", [])
+            if prop.get("id") and not prop.get("hide", False)
+        ]
 
     def load_native_driver_labels(self):
-        """Load native IoX node-definition property labels once."""
+        """Cache IoX profile definitions for native and PG3x nodes."""
         import json
 
         raw = self.isy_helper.cmd(
@@ -1688,107 +1655,47 @@ class Controller(udi_interface.Node):
         )
         data = json.loads(raw)
 
-        cache = {}
+        profiles = {}
+        native_labels = {}
 
         for family in data.get("families", []):
+            family_id = str(family.get("id", ""))
+
             for instance in family.get("instances", []):
+                instance_id = str(instance.get("id", ""))
+
                 for nodedef in instance.get("nodedefs", []):
                     nodedef_id = nodedef.get("id")
-
                     if not nodedef_id:
                         continue
 
-                    labels = {}
+                    key = (family_id, instance_id, nodedef_id)
+                    profiles[key] = nodedef
 
-                    for prop in nodedef.get("properties", []):
-                        if prop.get("hide", False):
-                            continue
-
-                        driver = prop.get("id")
-                        name = prop.get("name")
-
-                        if driver:
-                            labels[driver] = name or driver
-
-                    cache[nodedef_id] = labels
-
-        self.native_driver_labels = cache
-
-        LOGGER.info(
-            "Loaded native driver labels for %d node definitions",
-            len(cache),
-        )
-
-    def load_native_driver_labels(self):
-        """Load native IoX node-definition property labels once."""
-        import json
-
-        raw = self.isy_helper.cmd(
-            "/rest/profiles?include=nodedefs,editors,linkdefs"
-        )
-        data = json.loads(raw)
-
-        cache = {}
-
-        for family in data.get("families", []):
-            for instance in family.get("instances", []):
-                for nodedef in instance.get("nodedefs", []):
-                    nodedef_id = nodedef.get("id")
-
-                    if not nodedef_id:
+                    if family_id == "10":
                         continue
 
                     labels = {}
-
                     for prop in nodedef.get("properties", []):
                         if prop.get("hide", False):
                             continue
-
                         driver = prop.get("id")
-                        name = prop.get("name")
-
                         if driver:
-                            labels[driver] = name or driver
+                            labels[driver] = prop.get("name") or driver
 
-                    cache[nodedef_id] = labels
+                    native_labels[nodedef_id] = labels
 
-        self.native_driver_labels = cache
+        self.profile_definitions = profiles
+        self.native_driver_labels = native_labels
 
         LOGGER.info(
-            "Loaded native driver labels for %d node definitions",
-            len(cache),
+            "Loaded %d profile definitions and %d native label sets",
+            len(profiles), len(native_labels),
         )
 
     def get_native_driver_labels(self, nodedef_id):
-        """Return driver -> friendly label mapping for a native IoX node."""
-        import json
-
-        raw = self.isy_helper.cmd(
-            "/rest/profiles?include=nodedefs,editors,linkdefs"
-        )
-        data = json.loads(raw)
-
-        for family in data.get("families", []):
-            for instance in family.get("instances", []):
-                for nodedef in instance.get("nodedefs", []):
-                    if nodedef.get("id") != nodedef_id:
-                        continue
-
-                    labels = {}
-
-                    for prop in nodedef.get("properties", []):
-                        if prop.get("hide", False):
-                            continue
-
-                        driver = prop.get("id")
-                        name = prop.get("name")
-
-                        if driver:
-                            labels[driver] = name or driver
-
-                    return labels
-
-        return {}
+        """Return cached native IoX driver labels."""
+        return self.native_driver_labels.get(nodedef_id, {})
 
     def refresh_logger_metadata(self):
         """Refresh friendly names without changing logger identity."""
