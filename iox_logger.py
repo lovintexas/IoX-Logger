@@ -1623,24 +1623,43 @@ class Controller(udi_interface.Node):
 
     def get_driver_labels(self, slot, nodedef_id=None):
         """Return driver labels for a PG3x node type."""
+        nls_prefix = nodedef_id
+
+        if nodedef_id:
+            xml = self.isy_helper.cmd(
+                f"/rest/profiles/family/10/profile/{slot}/download/nodedef/nodedefs.xml"
+            )
+            root = ET.fromstring(xml)
+
+            for nodedef in root.iter("nodeDef"):
+                if nodedef.get("id") == nodedef_id:
+                    nls_prefix = nodedef.get("nls") or nodedef_id
+                    break
+
         nls = self.isy_helper.cmd(
             f"/rest/profiles/family/10/profile/{slot}/download/nls/en_us.txt"
         )
+
         labels = {}
         for line in nls.splitlines():
             if "=" not in line:
                 continue
+
             key, label = (part.strip() for part in line.split("=", 1))
             if not key.startswith("ST-") or not key.endswith("-NAME"):
                 continue
+
             driver_key = key[3:-5]
-            if nodedef_id and driver_key.startswith(nodedef_id + "-"):
-                driver = driver_key[len(nodedef_id) + 1:]
+
+            if nls_prefix and driver_key.startswith(nls_prefix + "-"):
+                driver = driver_key[len(nls_prefix) + 1:]
             elif "-" not in driver_key:
                 driver = driver_key
             else:
                 continue
+
             labels[driver] = label
+
         return labels
 
     def get_pg3_driver_ids(self, slot, nodedef_id):
