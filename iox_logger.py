@@ -1413,9 +1413,9 @@ if (!points.length) {{
 
             values = []
             seen_drivers = set()
-            native_node = family is None
+            native_node = not (family is not None and family.get('instance'))
 
-            if family is not None and node.get("nodeDefId"):
+            if family is not None and family.get("instance") and node.get("nodeDefId"):
                 for driver in controller.get_pg3_driver_ids(
                     slot, node.get("nodeDefId")
                 ):
