@@ -1,6 +1,6 @@
 # IoX Logger
 
-**Version 1.1.0**
+**Version 1.1.1**
 
 IoX Logger is a plugin for Universal Devices IoX that records node values and program executions for historical analysis.
 

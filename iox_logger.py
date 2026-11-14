@@ -44,6 +44,34 @@ LOGGER_MAX_BYTES = 10 * 1024 * 1024      # 10 MB total per logger
 PLUGIN_MAX_BYTES = 1024 * 1024 * 1024    # 1 GB total CSV storage
 
 
+class LoggerHTTPSServer(ThreadingHTTPServer):
+    """Perform TLS handshakes in worker threads, not the accept loop."""
+
+    daemon_threads = True
+
+    def __init__(self, address, handler, ssl_context):
+        super().__init__(address, handler)
+        self.ssl_context = ssl_context
+
+    def process_request_thread(self, request, client_address):
+        try:
+            request.settimeout(5)
+            secure_request = self.ssl_context.wrap_socket(
+                request,
+                server_side=True,
+            )
+        except (OSError, ssl.SSLError):
+            request.close()
+            return
+
+        try:
+            super().process_request_thread(
+                secure_request, client_address
+            )
+        finally:
+            secure_request.close()
+
+
 class LoggerWebHandler(BaseHTTPRequestHandler):
     controller = None
 
@@ -1994,6 +2022,21 @@ class Controller(udi_interface.Node):
             self.program_isy = None
         self.program_listeners.clear()
 
+        server = getattr(self, "web_server", None)
+        if server is not None:
+            try:
+                server.shutdown()
+            except Exception:
+                LOGGER.exception("Error shutting down HTTPS server")
+            finally:
+                try:
+                    server.server_close()
+                except Exception:
+                    LOGGER.exception("Error closing HTTPS server")
+                self.web_server = None
+
+        LoggerWebHandler.controller = None
+
     def start(self):
         LOGGER.info("IoX Logger starting")
 
@@ -2024,11 +2067,9 @@ class Controller(udi_interface.Node):
             len(self.configured_loggers),
         )
 
-        try:
-            self.web_server = ThreadingHTTPServer(
-                ("0.0.0.0", 8765), LoggerWebHandler
-            )
+        LoggerWebHandler.controller = self
 
+        try:
             cert_file, key_file = ensure_certificate(
                 Path(__file__).resolve().parent
             )
@@ -2037,9 +2078,10 @@ class Controller(udi_interface.Node):
             context.minimum_version = ssl.TLSVersion.TLSv1_2
             context.load_cert_chain(cert_file, key_file)
 
-            self.web_server.socket = context.wrap_socket(
-                self.web_server.socket,
-                server_side=True,
+            self.web_server = LoggerHTTPSServer(
+                ("0.0.0.0", 8765),
+                LoggerWebHandler,
+                context,
             )
             threading.Thread(
                 target=self.web_server.serve_forever,
@@ -2134,7 +2176,6 @@ class Controller(udi_interface.Node):
             except Exception:
                 LOGGER.exception("Unable to start program monitor")
 
-            LoggerWebHandler.controller = self
 
         except Exception:
             LOGGER.exception("CATALOG ERROR")
@@ -2842,7 +2883,7 @@ class Controller(udi_interface.Node):
 
 
 if __name__ == "__main__":
-    polyglot.start("1.0.5")
+    polyglot.start("1.1.1")
 
     controller = Controller(polyglot)
     polyglot.addNode(controller)

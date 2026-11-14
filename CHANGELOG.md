@@ -2,6 +2,14 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.1.1
+
+- Fixed HTTPS server becoming unresponsive when a client stalls during the TLS handshake.
+- Moved TLS handshakes into separate worker threads with a five-second timeout.
+- Fixed a startup race that could cause web requests to fail before the controller was initialized.
+- Added clean HTTPS server shutdown and socket cleanup.
+- Corrected the plugin-reported version number.
+
 ## 1.1.0
 
 - Added automatic monitoring of IoX program THEN and ELSE executions using the native IoX event stream.
