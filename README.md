@@ -1,6 +1,8 @@
 # IoX Logger
 
-IoX Logger is a PG3x plugin for Universal Devices IoX that records node and driver values for historical analysis.
+**Version 1.1.0**
+
+IoX Logger is a plugin for Universal Devices IoX that records node values and program executions for historical analysis.
 
 ## Documentation
 
@@ -10,72 +12,109 @@ https://lovintexas.github.io/IoX-Logger/
 
 ## Features
 
-- Discovers native IoX nodes and installed plugin nodes
-- Logs selected node values
+### Node Logging
+- Discover native IoX nodes and installed plugin nodes
+- Record selected node and driver values
 - On-change or fixed-interval logging
-- Local web interface
 - Graph historical data
 - Download CSV data
 - Enable, disable, edit, and delete individual loggers
 - Automatic CSV rotation and storage management
 
+### Program Execution Logging
+- Monitor IoX program THEN and ELSE executions
+- Enable or disable program logging
+- Store execution history in SQLite
+- Configure automatic history retention (7–365 days)
+- Search and sort execution history in the web interface
+- Download program execution history as CSV
+- Monitor all discovered IoX programs without modifying them
+
+### Web Interface
+- HTTPS on port 8765
+- Administrator password protection
+- First-time password setup
+- Session-based login and logout
+- Password change and recovery
+- Searchable program execution history
+
 ## Installation
 
-Install **IoX Logger** from the PG3x Plugin Store.
+Install **IoX Logger** from the Universal Devices Plugin Store.
 
 ### Required IoX Permission
 
-IoX Logger requires direct access to IoX in order to discover nodes and read their values.
+IoX Logger requires direct access to IoX to discover nodes and read their values.
 
 After installation:
 
 1. Open **IoX Logger** in PG3x.
-2. Go to the **Configuration** page.
+2. Go to **Configuration**.
 3. Enable **Allow Unrestricted ISY Access by Node Server**.
-4. Restart IoX Logger if prompted or if the plugin was already running.
-
-This permission is required. Without it, IoX Logger cannot retrieve the IoX node catalog or log node values.
+4. Restart the plugin if necessary.
 
 ## Web Interface
 
-After IoX Logger is running, open:
+Open:
 
-    http://<eisy-ip-address>:8765
-
-Replace `<eisy-ip-address>` with the IP address of your eisy.
+    https://<eisy-ip-address>:8765
 
 For example:
 
-    http://192.168.1.100:8765
+    https://192.168.1.100:8765
 
-The web interface is intended for use on your local network. It currently does not provide user authentication and should not be exposed directly to the Internet.
+The HTTPS certificate is locally generated and self-signed. Your browser may display a certificate warning.
 
-## Creating a Logger
+On first use, create an administrator password. Subsequent visits require login.
 
-From the web interface:
+Keep the web interface restricted to your trusted local network.
+
+## Creating a Node Logger
 
 1. Select an IoX source.
 2. Select a node.
-3. Select the value/driver to log.
-4. Choose the logging mode:
-   - **On Change** records a new value when it changes.
-   - **Fixed Interval** records the value at the selected interval.
+3. Select the value or driver.
+4. Choose On Change or Fixed Interval logging.
 5. Create the logger.
 
-Once data has been collected, it can be viewed as a graph or downloaded as a CSV file.
+Historical values can be graphed or downloaded as CSV files.
+
+## Program Logger
+
+Program Logger monitors executions of IoX programs using the native IoX event stream.
+
+### Credentials
+
+Enter your **local IoX administrator credentials** in the Program Monitor section.
+
+**Not Portal Credentials.**
+
+These credentials are separate from the IoX Logger web interface password.
+
+### Configuration
+
+- Enable or disable program logging.
+- Select the retention period.
+- Search and sort execution history.
+- Download execution history as CSV.
+
+Program history is stored locally in SQLite.
 
 ## Data Storage
 
-Logger configuration and historical data are stored locally on the eisy.
+Node logging uses automatically rotated CSV files.
 
-IoX Logger automatically manages its data files and storage usage.
+Program execution history is stored in a separate SQLite database with configurable retention.
+
+Configuration, credentials, and historical data are stored locally on the eisy.
 
 ## Requirements
 
-- Universal Devices eisy running PG3x
+- Universal Devices eisy running a compatible plugin environment
 - IoX
-- Unrestricted IoX access permission enabled for the plugin
-- TCP port **8765** available on the eisy
+- Unrestricted IoX access permission
+- TCP port 8765 available
+- Local IoX credentials for program monitoring
 
 ## License
 

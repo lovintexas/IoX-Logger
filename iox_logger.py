@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import csv
+import io
+import ssl
 import json
 import re
 import threading
@@ -10,6 +12,19 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+from iox_logger_tls import ensure_certificate
+from iox_logger_auth import (
+    read_credentials, check_password, create_initial_password,
+    change_password, complete_recovery, recovery_path,
+    save_program_credentials, read_program_credentials,
+)
+from iox_logger_sessions import (
+    create_session, validate_session, destroy_session,
+    destroy_all_sessions, login_allowed, record_login_failure,
+    clear_login_failures,
+)
+from iox_logger_program_history import ProgramHistory
+
 
 import udi_interface
 import markdown2
@@ -20,6 +35,8 @@ polyglot = udi_interface.Interface([])
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 CONFIG_FILE = DATA_DIR / "loggers.json"
+AUTH_BASE = Path(__file__).resolve().parent
+AUTH_LOCK = threading.RLock()
 
 # CSV storage limits
 CSV_ROTATE_BYTES = 2 * 1024 * 1024       # 2 MB per file
@@ -29,8 +46,122 @@ PLUGIN_MAX_BYTES = 1024 * 1024 * 1024    # 1 GB total CSV storage
 
 class LoggerWebHandler(BaseHTTPRequestHandler):
     controller = None
+
+    SESSION_COOKIE = "iox_logger_session"
+
+    def session_token(self):
+        from http.cookies import SimpleCookie
+        try:
+            cookies = SimpleCookie()
+            cookies.load(self.headers.get("Cookie", ""))
+            item = cookies.get(self.SESSION_COOKIE)
+            return item.value if item else None
+        except Exception:
+            return None
+
+    def set_session_cookie(self, token):
+        self.send_header("Set-Cookie", f"{self.SESSION_COOKIE}={token}; Path=/; Secure; HttpOnly; SameSite=Strict")
+
+    def clear_session_cookie(self):
+        self.send_header("Set-Cookie", f"{self.SESSION_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Strict")
+
+    def valid_request_origin(self):
+        from urllib.parse import urlsplit
+        origin = self.headers.get("Origin")
+        if not origin:
+            return False
+        parsed = urlsplit(origin)
+        return parsed.scheme == "https" and parsed.netloc == self.headers.get("Host", "")
+
+    def send_json(self, value, status=200):
+        body = json.dumps(value).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def redirect(self, location):
+        self.send_response(303)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def serve_auth_page(self, filename):
+        path = AUTH_BASE / filename
+        if not path.is_file():
+            self.send_error(404, "Authentication page missing")
+            return
+        body = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def require_auth(self):
+        if validate_session(self.session_token()):
+            return True
+        self.send_response(401)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+        return False
+
+    def read_json_request(self):
+        if self.headers.get("Content-Type", "").split(";")[0].strip().lower() != "application/json":
+            raise ValueError("JSON content type required")
+        size = int(self.headers.get("Content-Length", "0"))
+        if not 0 < size <= 8192:
+            raise ValueError("Invalid request size")
+        data = json.loads(self.rfile.read(size))
+        if not isinstance(data, dict):
+            raise ValueError("Expected JSON object")
+        return data
+
     def do_GET(self):
         parsed = urlparse(self.path)
+        if parsed.path == "/api/auth/status":
+            self.send_json({"configured": read_credentials(AUTH_BASE) is not None})
+            return
+        if parsed.path == "/auth":
+            self.serve_auth_page("iox_logger_password.html")
+            return
+        if parsed.path == "/login":
+            if read_credentials(AUTH_BASE) is None:
+                self.redirect("/auth")
+            else:
+                self.serve_auth_page("iox_logger_login.html")
+            return
+        if not validate_session(self.session_token()):
+            if parsed.path in ("/", "/editor"):
+                self.redirect("/login" if read_credentials(AUTH_BASE) is not None else "/auth")
+            else:
+                self.require_auth()
+            return
+        if parsed.path == "/program-history":
+            try:
+                q = parse_qs(parsed.query)
+                self.send_json(self.controller.program_history.query(
+                    search=q.get("search", [""])[0],
+                    sort=q.get("sort", ["newest"])[0],
+                    page=int(q.get("page", ["1"])[0]),
+                ))
+            except (ValueError, TypeError):
+                self.send_error(400, "Invalid query")
+            return
+        if parsed.path == "/program-settings":
+            self.send_json(self.controller.program_history.settings())
+            return
+        if parsed.path == "/program-download":
+            self.send_program_download(parsed)
+            return
+        if parsed.path == "/editor":
+            self.redirect("/")
+            return
 
         if parsed.path == "/values":
             self.send_values(parsed)
@@ -464,7 +595,7 @@ class LoggerWebHandler(BaseHTTPRequestHandler):
   </style>
 </head>
 <body>
-  <h1>IoX Logger</h1>
+  <h1>IoX Logger <span style="float:right;font-size:13px"><a href="/auth" style="color:white">Password</a> &nbsp; <button type="button" id="logoutButton">Log out</button></span></h1>
 
   <p>
     <label>Source:</label>
@@ -504,6 +635,55 @@ class LoggerWebHandler(BaseHTTPRequestHandler):
 
   <h2>Active Loggers</h2>
   <div id="activeLoggers"></div>
+
+  <hr style="margin:32px 0">
+
+  <h2>Program Execution History</h2>
+  <section style="background:white;padding:16px 20px;border-radius:8px;border:1px solid #dbe3ec">
+    <div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center">
+      <label style="width:auto"><input type="checkbox" id="programEnabled"> Enable program logging</label>
+      <label style="width:auto">Retain for <select id="programRetention" style="min-width:110px">
+        <option value="7">7 days</option><option value="14">14 days</option>
+        <option value="30">30 days</option><option value="60">60 days</option>
+        <option value="90">90 days</option><option value="180">180 days</option>
+        <option value="365">365 days</option>
+      </select></label>
+      <button type="button" id="programSaveSettings">Save Settings</button>
+      <span id="programSettingsMessage" role="status"></span>
+    </div>
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin:16px 0">
+      <input id="programSearch" placeholder="Search name, ID, branch, date" style="flex:1;min-width:220px;padding:8px">
+      <select id="programSort" style="min-width:160px"><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="name">Program name</option></select>
+      <button type="button" id="programDownload">Download CSV</button>
+    </div>
+    <div style="overflow-x:auto"><table style="width:100%"><thead><tr><th>Time</th><th>Program</th><th>ID</th><th>Branch</th></tr></thead><tbody id="programHistoryRows"></tbody></table></div>
+    <div style="display:flex;gap:12px;align-items:center;margin-top:12px">
+      <button type="button" id="programPrev">Previous</button><span id="programPageInfo"></span><button type="button" id="programNext">Next</button>
+    </div>
+  </section>
+
+  <h2>Program Monitor</h2>
+  <p>Local IoX credentials for monitoring program executions. Not Portal Credentials.</p>
+
+  <form id="programConfigForm">
+    <p>
+      <label for="programUsername">IoX Username:</label>
+      <input id="programUsername" type="text"
+             value="admin" autocomplete="username" required>
+    </p>
+
+    <p>
+      <label for="programPassword">IoX Password:</label>
+      <input id="programPassword" type="password"
+             autocomplete="new-password" required>
+    </p>
+
+    <p>
+      <button type="submit">Save Credentials</button>
+    </p>
+  </form>
+
+  <p id="programConfigMessage" role="status"></p>
 
 <script>
 const nodes = {nodes_json};
@@ -882,6 +1062,115 @@ async function refreshLoggers() {{
     }}
 }}
 
+document.getElementById("programConfigForm").addEventListener(
+    "submit", async (event) => {{
+        event.preventDefault();
+
+        const message = document.getElementById(
+            "programConfigMessage"
+        );
+        message.textContent = "Saving...";
+
+        try {{
+            const response = await fetch("/program-config", {{
+                method: "POST",
+                headers: {{"Content-Type": "application/json"}},
+                body: JSON.stringify({{
+                    username: document.getElementById(
+                        "programUsername"
+                    ).value,
+                    password: document.getElementById(
+                        "programPassword"
+                    ).value
+                }})
+            }});
+
+            const result = await response.json();
+
+            if (!response.ok || !result.ok) {{
+                throw new Error(result.error || "Save failed");
+            }}
+
+            document.getElementById("programPassword").value = "";
+            message.textContent =
+                "Credentials saved. Restart IoX Logger to apply.";
+
+        }} catch (error) {{
+            message.textContent = "Error: " + error.message;
+        }}
+    }}
+);
+
+let programPage = 1;
+let programTotalPages = 1;
+const programSearch = document.getElementById("programSearch");
+const programSort = document.getElementById("programSort");
+async function refreshProgramHistory() {{
+    const params = new URLSearchParams({{
+        page: String(programPage), search: programSearch.value, sort: programSort.value
+    }});
+    try {{
+        const response = await fetch("/program-history?" + params, {{cache:"no-store"}});
+        if (!response.ok) throw new Error("History request failed");
+        const result = await response.json();
+        programTotalPages = Math.max(1, Math.ceil(result.total / result.page_size));
+        const tbody = document.getElementById("programHistoryRows");
+        tbody.replaceChildren();
+        for (const event of result.events) {{
+            const tr = document.createElement("tr");
+            for (const value of [event.timestamp, event.program_name, event.program_id, event.branch]) {{
+                const td = document.createElement("td");
+                td.textContent = value;
+                td.style.padding = "8px";
+                tr.appendChild(td);
+            }}
+            tbody.appendChild(tr);
+        }}
+        document.getElementById("programPageInfo").textContent =
+            `Page ${{programPage}} of ${{programTotalPages}} (${{result.total}} events)`;
+        document.getElementById("programPrev").disabled = programPage <= 1;
+        document.getElementById("programNext").disabled = programPage >= programTotalPages;
+    }} catch (error) {{
+        document.getElementById("programPageInfo").textContent = error.message;
+    }}
+}}
+async function loadProgramSettings() {{
+    const response = await fetch("/program-settings", {{cache:"no-store"}});
+    if (!response.ok) return;
+    const settings = await response.json();
+    document.getElementById("programEnabled").checked = settings.enabled;
+    document.getElementById("programRetention").value = String(settings.retention_days);
+}}
+document.getElementById("programSaveSettings").addEventListener("click", async () => {{
+    const message = document.getElementById("programSettingsMessage");
+    try {{
+        const response = await fetch("/program-settings", {{
+            method:"POST", headers:{{"Content-Type":"application/json"}},
+            body:JSON.stringify({{
+                enabled:document.getElementById("programEnabled").checked,
+                retention_days:Number(document.getElementById("programRetention").value)
+            }})
+        }});
+        if (!response.ok) throw new Error("Save failed");
+        message.textContent = "Saved";
+    }} catch(error) {{ message.textContent = error.message; }}
+}});
+programSearch.addEventListener("input", () => {{programPage=1;refreshProgramHistory();}});
+programSort.addEventListener("change", () => {{programPage=1;refreshProgramHistory();}});
+document.getElementById("programPrev").addEventListener("click", () => {{if(programPage>1) {{programPage--;refreshProgramHistory();}}}});
+document.getElementById("programNext").addEventListener("click", () => {{if(programPage<programTotalPages) {{programPage++;refreshProgramHistory();}}}});
+document.getElementById("programDownload").addEventListener("click", () => {{
+    const params = new URLSearchParams({{search:programSearch.value,sort:programSort.value}});
+    window.location.href = "/program-download?" + params;
+}});
+document.getElementById("logoutButton").addEventListener("click", async () => {{
+    await fetch("/api/auth/logout", {{method:"POST"}});
+    window.location.replace("/login");
+}});
+loadProgramSettings();
+refreshProgramHistory();
+setInterval(refreshProgramHistory, 15000);
+
 renderLoggers();
 loadNodes();
 loadValues();
@@ -899,11 +1188,111 @@ setInterval(refreshLoggers, 10000);
         self.end_headers()
         self.wfile.write(body)
 
+    def send_program_download(self, parsed):
+        q = parse_qs(parsed.query)
+        search = q.get("search", [""])[0]
+        sort = q.get("sort", ["newest"])[0]
+        try:
+            self.controller.program_history.criteria(search, sort)
+            rows = self.controller.program_history.export(search, sort)
+        except ValueError:
+            self.send_error(400, "Invalid export query")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/csv; charset=utf-8")
+        self.send_header("Content-Disposition", 'attachment; filename="iox-program-history.csv"')
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(b"timestamp,program_name,program_id,branch\r\n")
+        for record in rows:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            # Prefix spreadsheet formula-leading text to avoid CSV injection.
+            values = [str(x) for x in record]
+            values = [("'" + v) if v.lstrip().startswith(("=", "+", "-", "@")) else v for v in values]
+            writer.writerow(values)
+            self.wfile.write(buf.getvalue().encode("utf-8"))
+
+    def handle_auth_post(self, path):
+        if not self.valid_request_origin():
+            self.send_error(403, "Invalid origin")
+            return
+        try:
+            data = self.read_json_request()
+            with AUTH_LOCK:
+                if path == "/api/auth/login":
+                    ip = self.client_address[0]
+                    if not login_allowed(ip):
+                        self.send_error(429, "Too many login attempts")
+                        return
+                    creds = read_credentials(AUTH_BASE)
+                    if creds is None or not isinstance(data.get("password"), str) or not check_password(data["password"], *creds):
+                        record_login_failure(ip)
+                        self.send_error(403, "Invalid credentials")
+                        return
+                    clear_login_failures(ip)
+                    token = create_session()
+                    self.send_response(204)
+                    self.set_session_cookie(token)
+                    self.send_header("Cache-Control", "no-store")
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                if path == "/api/auth/logout":
+                    destroy_session(self.session_token())
+                    self.send_response(204)
+                    self.clear_session_cookie()
+                    self.send_header("Content-Length", "0")
+                    self.end_headers()
+                    return
+                new = data.get("new_password")
+                if not isinstance(new, str) or new != data.get("confirm_password"):
+                    raise ValueError("Passwords do not match")
+                if path == "/api/auth/setup":
+                    if read_credentials(AUTH_BASE) is not None:
+                        self.send_error(403, "Already configured")
+                        return
+                    create_initial_password(AUTH_BASE, new)
+                elif path == "/api/auth/change":
+                    if not validate_session(self.session_token()):
+                        self.send_error(401)
+                        return
+                    change_password(AUTH_BASE, data.get("current_password", ""), new)
+                elif path == "/api/auth/recover":
+                    complete_recovery(AUTH_BASE, data.get("code", ""), new)
+                destroy_all_sessions()
+                self.send_response(204)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+        except (ValueError, TypeError, UnicodeError, AttributeError):
+            self.send_error(400, "Invalid password request")
+        except OSError:
+            LOGGER.exception("Password update error")
+            self.send_error(500, "Password update failed")
+
     def do_POST(self):
         parsed = urlparse(self.path)
+        if parsed.path in ("/api/auth/login", "/api/auth/logout", "/api/auth/setup", "/api/auth/change", "/api/auth/recover"):
+            self.handle_auth_post(parsed.path)
+            return
+        if not self.valid_request_origin():
+            self.send_error(403, "Invalid origin")
+            return
+        if not self.require_auth():
+            return
+        if parsed.path == "/program-settings":
+            try:
+                data = self.read_json_request()
+                result = self.controller.program_history.configure(data)
+                self.send_json(result)
+            except (ValueError, TypeError):
+                self.send_error(400, "Invalid program settings")
+            return
 
         if parsed.path not in (
-            "/add", "/delete", "/enable", "/interval"
+            "/add", "/delete", "/enable", "/interval",
+            "/program-config"
         ):
             self.send_error(404)
             return
@@ -912,7 +1301,14 @@ setInterval(refreshLoggers, 10000);
             length = int(self.headers.get("Content-Length", "0"))
             data = json.loads(self.rfile.read(length).decode("utf-8"))
 
-            if parsed.path == "/add":
+            if parsed.path == "/program-config":
+                username = data.get("username", "admin")
+                password = data.get("password", "")
+                save_program_credentials(
+                    AUTH_BASE, username, password
+                )
+                result = {"ok": True}
+            elif parsed.path == "/add":
                 entry = self.controller.add_logger(data)
                 result = {
                     "ok": True,
@@ -1199,7 +1595,7 @@ if (!points.length) {{
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       ctx.fillText(
-        value.toFixed(2).replace(/\.00$/, ""),
+        value.toFixed(2).replace(/\\.00$/, ""),
         margin.left - 8,
         y
       );
@@ -1486,6 +1882,117 @@ class Controller(udi_interface.Node):
         self.logger_lock = threading.RLock()
         self.native_driver_labels = {}
         self.profile_definitions = {}
+        self.program_isy = None
+        self.program_listeners = []
+        self.program_history = ProgramHistory(AUTH_BASE / "persist")
+
+    def _start_program_monitor(self, isy):
+        """Monitor individual IoX Then/Else executions."""
+        from pyisy.programs.program import Program
+
+        self.program_isy = isy
+
+        count = 0
+        for path, program in isy.programs:
+            if not isinstance(program, Program):
+                continue
+
+            previous = [program.ran_then, program.ran_else]
+
+            def on_event(status, p=program, prev=previous):
+                then_count = p.ran_then
+                else_count = p.ran_else
+
+                if then_count > prev[0]:
+                    try:
+                        self.program_history.record(p.name, p.address, "THEN")
+                    except Exception:
+                        LOGGER.exception("Unable to record THEN execution")
+
+                if else_count > prev[1]:
+                    try:
+                        self.program_history.record(p.name, p.address, "ELSE")
+                    except Exception:
+                        LOGGER.exception("Unable to record ELSE execution")
+
+                prev[:] = [then_count, else_count]
+
+            self.program_listeners.append(
+                program.status_events.subscribe(on_event)
+            )
+            count += 1
+
+        # Normalize legacy PyISY SOAP subscription HTTP headers.
+        from pyisy import strings as pyisy_strings
+
+        header = pyisy_strings.SUB_MSG["head"]
+        header = header.replace("\r\n", "\n").replace("\r", "\n")
+        header = "\r\n".join(header.split("\n"))
+        pyisy_strings.SUB_MSG["head"] = header
+
+        # Use the IoX SOAP event subscription format.
+        pyisy_strings.SUB_MSG["head"] = (
+            pyisy_strings.SUB_MSG["head"].replace(
+                "X_Insteon_Lighting_Service:1",
+                "X_IoX_Service:1",
+            )
+        )
+        pyisy_strings.SUB_MSG["body"] = (
+            pyisy_strings.SUB_MSG["body"]
+            .replace(
+                "X_Insteon_Lighting_Service:1",
+                "X_IoX_Service:1",
+            )
+            .replace(
+                "</duration>",
+                "</duration><send>F</send>",
+                1,
+            )
+        )
+
+        # Use native IoX credentials only for event subscriptions.
+        # REST requests retain their original eisy-ui connection.
+        import base64
+
+        credentials = read_program_credentials(AUTH_BASE)
+
+        if credentials is None:
+            LOGGER.warning(
+                "Program monitor disabled: configure native IoX "
+                "credentials in the HTML interface"
+            )
+            return
+
+        username, password = credentials
+
+        original_conn = isy.conn
+
+        class ProgramMonitorConnection(type(original_conn)):
+            @property
+            def connection_info(self):
+                info = super().connection_info
+
+                auth = f"{username}:{password}".encode("utf-8")
+                info["auth"] = base64.b64encode(auth).decode("ascii")
+                info["passwd"] = password
+                info["addr"] = "127.0.0.1"
+                info["port"] = 8443
+                info["tls"] = 1.2
+
+                return info
+
+        # Change only this instance's class. The underlying REST
+        # connection fields and session remain unchanged.
+        isy.conn.__class__ = ProgramMonitorConnection
+
+        isy.auto_update = True
+        LOGGER.info("Program monitor active: %d programs", count)
+
+    def stop(self):
+        if self.program_isy is not None:
+            self.program_isy.auto_update = False
+            self.program_isy = None
+        self.program_listeners.clear()
 
     def start(self):
         LOGGER.info("IoX Logger starting")
@@ -1520,6 +2027,19 @@ class Controller(udi_interface.Node):
         try:
             self.web_server = ThreadingHTTPServer(
                 ("0.0.0.0", 8765), LoggerWebHandler
+            )
+
+            cert_file, key_file = ensure_certificate(
+                Path(__file__).resolve().parent
+            )
+
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.minimum_version = ssl.TLSVersion.TLSv1_2
+            context.load_cert_chain(cert_file, key_file)
+
+            self.web_server.socket = context.wrap_socket(
+                self.web_server.socket,
+                server_side=True,
             )
             threading.Thread(
                 target=self.web_server.serve_forever,
@@ -1608,6 +2128,11 @@ class Controller(udi_interface.Node):
                 }
 
             self.refresh_logger_metadata()
+
+            try:
+                self._start_program_monitor(isy)
+            except Exception:
+                LOGGER.exception("Unable to start program monitor")
 
             LoggerWebHandler.controller = self
 
