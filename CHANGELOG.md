@@ -2,6 +2,18 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.1.0
+
+- Added automatic monitoring of IoX program THEN and ELSE executions using the native IoX event stream.
+- Added searchable, sortable, paginated program execution history in the web interface.
+- Added CSV export of program execution history.
+- Added SQLite storage with configurable retention from 7 to 365 days.
+- Added controls to enable and disable program logging.
+- Added HTTPS with a locally generated self-signed certificate.
+- Added administrator authentication, first-time password setup, password recovery, and session management.
+- Added separate local IoX credential configuration for program monitoring.
+- Preserved existing node logging, graphing, and CSV export functionality.
+
 ## 1.0.5
 
 - Fixed an uninitialized variable error when retrieving node values.
