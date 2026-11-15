@@ -1,6 +1,6 @@
 # IoX Logger
 
-**Version 1.1.1**
+**Version 1.1.2**
 
 IoX Logger is a plugin for Universal Devices IoX that records node values and program executions for historical analysis.
 
@@ -31,7 +31,7 @@ https://lovintexas.github.io/IoX-Logger/
 - Monitor all discovered IoX programs without modifying them
 
 ### Web Interface
-- HTTPS on port 8765
+- HTTPS on port 8765 with automatic HTTP-to-HTTPS redirection
 - Administrator password protection
 - First-time password setup
 - Session-based login and logout

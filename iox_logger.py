@@ -54,22 +54,58 @@ class LoggerHTTPSServer(ThreadingHTTPServer):
         self.ssl_context = ssl_context
 
     def process_request_thread(self, request, client_address):
+        # Detect HTTP or HTTPS inside the worker thread.
+        sock = request
         try:
-            request.settimeout(5)
-            secure_request = self.ssl_context.wrap_socket(
-                request,
-                server_side=True,
-            )
-        except (OSError, ssl.SSLError):
-            request.close()
-            return
+            sock.settimeout(5)
+            first = sock.recv(1, __import__("socket").MSG_PEEK)
+            if first == bytes([0x16]):
+                sock = self.ssl_context.wrap_socket(
+                    sock, server_side=True
+                )
+                handler = self.RequestHandlerClass
+            elif first:
+                handler = LoggerHTTPRedirectHandler
+            else:
+                return
 
-        try:
-            super().process_request_thread(
-                secure_request, client_address
-            )
+            handler(sock, client_address, self)
+        except (OSError, ssl.SSLError):
+            return
         finally:
-            secure_request.close()
+            sock.close()
+            if sock is not request:
+                request.close()
+
+
+class LoggerHTTPRedirectHandler(BaseHTTPRequestHandler):
+    """Redirect plaintext HTTP without processing credentials."""
+
+    def redirect_https(self):
+        host = self.headers.get("Host", "")
+        if not re.fullmatch(r"[A-Za-z0-9.\\-]+(?::[0-9]{1,5})?", host):
+            host = self.connection.getsockname()[0]
+        if ":" not in host:
+            host += f":{self.server.server_address[1]}"
+
+        path = self.path
+        if not path.startswith("/") or path.startswith("//"):
+            path = "/"
+
+        self.send_response(308)
+        self.send_header("Location", f"https://{host}{path}")
+        self.send_header("Content-Length", "0")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.close_connection = True
+
+    do_GET = redirect_https
+    do_HEAD = redirect_https
+    do_POST = redirect_https
+    do_PUT = redirect_https
+    do_PATCH = redirect_https
+    do_DELETE = redirect_https
+    do_OPTIONS = redirect_https
 
 
 class LoggerWebHandler(BaseHTTPRequestHandler):
@@ -2883,7 +2919,7 @@ class Controller(udi_interface.Node):
 
 
 if __name__ == "__main__":
-    polyglot.start("1.1.1")
+    polyglot.start("1.1.2")
 
     controller = Controller(polyglot)
     polyglot.addNode(controller)

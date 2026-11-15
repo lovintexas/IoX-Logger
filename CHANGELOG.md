@@ -2,6 +2,13 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.1.2
+
+- Added automatic HTTP-to-HTTPS redirection on port 8765.
+- Added HTTP and HTTPS support on the same port.
+- Kept protocol detection in worker threads to prevent browser connection delays.
+- Preserved existing HTTPS authentication and logging functionality.
+
 ## 1.1.1
 
 - Fixed HTTPS server becoming unresponsive when a client stalls during the TLS handshake.
