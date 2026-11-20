@@ -1946,6 +1946,7 @@ class Controller(udi_interface.Node):
         self.logger_lock = threading.RLock()
         self.native_driver_labels = {}
         self.profile_definitions = {}
+        self.web_catalog = {}
         self.program_isy = None
         self.program_listeners = []
         self.program_history = ProgramHistory(AUTH_BASE / "persist")
@@ -2130,6 +2131,20 @@ class Controller(udi_interface.Node):
 
         # Diagnostic: catalog all Node Server nodes in IoX
         try:
+            # Compatibility with IoX firmware that omits Networking Module.
+            from pyisy.configuration import Configuration
+
+            if not getattr(Configuration, "_iox_logger_compat", False):
+                original_getitem = Configuration.__getitem__
+
+                def compatible_getitem(config, key):
+                    if key == "Networking Module" and key not in config:
+                        return False
+                    return original_getitem(config, key)
+
+                Configuration.__getitem__ = compatible_getitem
+                Configuration._iox_logger_compat = True
+
             isy = self.isy_helper.pyisy()
 
             catalog = {}
