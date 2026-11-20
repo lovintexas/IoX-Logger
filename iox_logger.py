@@ -2934,7 +2934,7 @@ class Controller(udi_interface.Node):
 
 
 if __name__ == "__main__":
-    polyglot.start("1.1.2")
+    polyglot.start("1.1.3")
 
     controller = Controller(polyglot)
     polyglot.addNode(controller)

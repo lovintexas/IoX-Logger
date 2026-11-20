@@ -2,6 +2,13 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.1.3
+
+- Fixed compatibility with updated IoX firmware that omits the legacy Networking Module configuration field.
+- Restored node catalog discovery and program monitoring after the firmware update.
+- Fixed web interface crashes when node catalog initialization fails.
+- Preserved administrator credentials and existing logger data.
+
 ## 1.1.2
 
 - Added automatic HTTP-to-HTTPS redirection on port 8765.
