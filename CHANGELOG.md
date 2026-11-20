@@ -2,6 +2,12 @@
 
 All notable changes to IoX Logger will be documented in this file.
 
+## 1.1.4
+
+- Fixed native eisy-ui system backup permissions for the program history SQLite database.
+- Automatically grants the eisy-ui service read access to existing and newly created program history databases.
+- Preserves backup read access when program history configuration files are replaced.
+
 ## 1.1.3
 
 - Fixed compatibility with updated IoX firmware that omits the legacy Networking Module configuration field.

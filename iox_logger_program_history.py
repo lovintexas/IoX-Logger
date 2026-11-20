@@ -4,6 +4,7 @@ The database and configuration live under persist, separate from CSV node logs.
 """
 import json
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime, timezone
@@ -11,6 +12,18 @@ from pathlib import Path
 
 RETENTION_OPTIONS = {7, 14, 30, 60, 90, 180, 365}
 PAGE_SIZE = 100
+
+
+def grant_backup_read_access(path):
+    """Allow the eisy-ui backup service to read a private plugin file."""
+    try:
+        subprocess.run(
+            ["/bin/setfacl", "-m", "u:eisyui:r:allow", str(path)],
+            check=True,
+            capture_output=True,
+        )
+    except (OSError, subprocess.CalledProcessError):
+        pass  # ACL unavailable; retain private file permissions.
 
 
 class ProgramHistory:
@@ -37,6 +50,7 @@ class ProgramHistory:
             db.execute("CREATE INDEX IF NOT EXISTS ix_executions_epoch ON executions(epoch)")
             db.execute("CREATE INDEX IF NOT EXISTS ix_executions_name ON executions(program_name)")
         self.db_path.chmod(0o600)
+        grant_backup_read_access(self.db_path)
         self.cleanup(force=True)
 
     def connect(self):
@@ -76,6 +90,7 @@ class ProgramHistory:
             try:
                 path.chmod(0o600)
                 os.replace(path, self.config_path)
+                grant_backup_read_access(self.config_path)
             finally:
                 path.unlink(missing_ok=True)
             self.enabled = enabled
